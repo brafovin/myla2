@@ -3,25 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="myla2 - anonymer Zufalls-Video-Chat fuer Erwachsene (18+)" />
-    <title>myla2 · Video-Chat 18+</title>
+    <meta name="description" content="Velura - eleganter Zufalls-Video-Chat fuer Erwachsene (18+). Verifiziert, moderiert, respektvoll." />
+    <meta name="theme-color" content="#14101b" />
+    <title>Velura · Video-Chat ab 18</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
     <!-- Altersgate: blockiert die Seite bis 18+ bestaetigt wurde -->
     <div id="age-gate" class="overlay">
       <div class="card age-card">
-        <h1>myla2</h1>
-        <p class="badge">Nur fuer Erwachsene · 18+</p>
-        <p>
-          Diese Plattform enthaelt Inhalte, die ausschliesslich fuer
-          Personen ab 18 Jahren bestimmt sind. Mit dem Fortfahren
-          bestaetigst du, dass du mindestens 18 Jahre alt bist und den
-          <a href="#" id="open-terms">Nutzungsbedingungen</a> zustimmst.
+        <img src="/assets/logo.svg" alt="" class="logo-lg" />
+        <h1 class="wordmark">Velura</h1>
+        <p class="tagline">Echte Begegnungen. Mit Respekt.</p>
+        <p class="badge">Nur fuer Erwachsene · ab 18</p>
+        <p class="age-text">
+          Velura ist eine Plattform fuer Erwachsene. Mit dem Fortfahren
+          bestaetigst du, dass du <strong>mindestens 18 Jahre alt</strong> bist
+          und den <a href="#" id="open-terms">Community-Regeln</a> zustimmst.
         </p>
+        <div class="trust-row">
+          <span class="trust-chip">🔒 Privat &amp; verschluesselt (P2P)</span>
+          <span class="trust-chip">🛡️ Moderiert</span>
+          <span class="trust-chip">🚩 1-Klick-Melden</span>
+        </div>
         <div class="row">
           <button id="age-yes" class="btn btn-primary">
-            Ich bin 18 Jahre oder aelter
+            Ich bin 18 oder aelter — eintreten
           </button>
           <button id="age-no" class="btn btn-ghost">Verlassen</button>
         </div>
@@ -30,7 +38,11 @@
 
     <!-- Kopfzeile -->
     <header id="topbar" class="hidden">
-      <div class="brand">myla2 <span class="badge small">18+</span></div>
+      <div class="brand">
+        <img src="/assets/logo.svg" alt="Velura" class="logo-sm" />
+        <span class="wordmark-sm">Velura</span>
+        <span class="badge small">18+</span>
+      </div>
       <div class="top-right">
         <span id="online-count" class="muted"></span>
         <span id="current-user" class="muted"></span>
@@ -39,25 +51,38 @@
       </div>
     </header>
 
+    <!-- Vertrauensleiste -->
+    <div id="trust-bar" class="hidden">
+      <span>🛡️ Respektvolles Miteinander</span>
+      <span>·</span>
+      <span>🔞 Keine Minderjaehrigen</span>
+      <span>·</span>
+      <span>🚩 Verstoesse jederzeit melden</span>
+      <span>·</span>
+      <a href="#" id="open-terms-2">Community-Regeln</a>
+    </div>
+
     <main id="app" class="hidden">
       <!-- Auth-Ansicht -->
       <section id="auth-view" class="view auth-stack">
-        <!-- Schneller Gast-Zugang (kein Konto noetig) -->
-        <div class="card">
-          <h2>Sofort loslegen</h2>
-          <p class="muted">Kein Konto noetig — Nickname waehlen und chatten.</p>
+        <div class="card hero-card">
+          <h2>Willkommen bei Velura</h2>
+          <p class="muted">
+            Lerne in Sekunden neue Menschen per Video kennen — zufaellig,
+            anonym und jederzeit weiter zur naechsten Person.
+          </p>
           <form id="guest-form" class="auth-form">
             <input type="text" name="nickname" placeholder="Dein Nickname" maxlength="24" required />
             <label class="checkbox">
               <input type="checkbox" name="ageConfirmed" required />
               Ich bestaetige, dass ich mindestens 18 Jahre alt bin.
             </label>
-            <button class="btn btn-primary" type="submit">Als Gast beitreten</button>
+            <button class="btn btn-primary btn-lg" type="submit">Als Gast beitreten</button>
           </form>
+          <p class="fineprint">Kein Konto noetig. Mit dem Beitritt akzeptierst du die Community-Regeln.</p>
           <p id="guest-error" class="error"></p>
         </div>
 
-        <!-- Optional: Konto erstellen / anmelden -->
         <details class="card account-box">
           <summary>Konto erstellen oder anmelden (optional)</summary>
           <div class="tabs">
@@ -92,18 +117,31 @@
       <section id="chat-view" class="view hidden">
         <div class="videos">
           <video id="remote-video" autoplay playsinline></video>
-          <video id="local-video" autoplay playsinline muted></video>
+          <div class="local-wrap">
+            <video id="local-video" autoplay playsinline muted></video>
+            <div id="local-off" class="local-off">Kamera aus</div>
+          </div>
           <div id="status-banner" class="status-banner">
-            Klicke auf „Start", um einen zufaelligen Partner zu finden.
+            Stelle Kamera &amp; Mikro ein und klicke auf „Start", um einen
+            zufaelligen Partner zu finden.
           </div>
         </div>
 
         <aside class="sidebar">
+          <div class="device-row">
+            <button id="cam-btn" class="btn btn-toggle">📷 Kamera an</button>
+            <button id="mic-btn" class="btn btn-toggle">🎤 Mikro an</button>
+          </div>
+          <p class="device-hint muted">
+            Kamera und Mikro sind optional — du kannst auch nur zuschauen oder
+            chatten.
+          </p>
+
           <div class="controls">
             <button id="start-btn" class="btn btn-primary">Start</button>
             <button id="next-btn" class="btn btn-secondary hidden">Weiter ⏭</button>
             <button id="stop-btn" class="btn btn-ghost hidden">Stop</button>
-            <button id="report-btn" class="btn btn-danger hidden">Melden</button>
+            <button id="report-btn" class="btn btn-danger hidden">🚩 Melden</button>
           </div>
 
           <div class="chat">
@@ -128,13 +166,14 @@
     <!-- Melde-Dialog -->
     <div id="report-modal" class="overlay hidden">
       <div class="card">
-        <h2>Nutzer melden</h2>
+        <h2>🚩 Nutzer melden</h2>
         <form id="report-form">
           <select name="reason" required>
             <option value="">Grund waehlen…</option>
             <option value="minor">Minderjaehrig / Jugendschutz</option>
             <option value="harassment">Belaestigung / Beleidigung</option>
             <option value="illegal">Illegale Inhalte</option>
+            <option value="nonconsensual">Unerwuenschtes / nicht einvernehmliches Verhalten</option>
             <option value="spam">Spam / Werbung</option>
             <option value="other">Sonstiges</option>
           </select>
@@ -147,18 +186,19 @@
       </div>
     </div>
 
-    <!-- Nutzungsbedingungen -->
+    <!-- Community-Regeln -->
     <div id="terms-modal" class="overlay hidden">
       <div class="card wide scroll">
-        <h2>Nutzungsbedingungen (Kurzfassung)</h2>
+        <h2>Community-Regeln</h2>
         <ul>
-          <li>Der Zugang ist ausschliesslich Personen ab 18 Jahren gestattet.</li>
-          <li>Sexuelle Darstellungen Minderjaehriger sind streng verboten und werden den Behoerden gemeldet.</li>
-          <li>Belaestigung, Gewaltandrohung und illegale Inhalte fuehren zur sofortigen Sperrung.</li>
-          <li>Nutze die Melden-Funktion bei Verstoessen. Meldungen werden moderiert.</li>
-          <li>Dies ist eine Demo-/Beispielanwendung. Vor einem echten Betrieb sind eine robuste Altersverifikation, Datenschutz (DSGVO), Hosting in geeigneter Jurisdiktion und Content-Moderation zwingend erforderlich.</li>
+          <li><strong>Ab 18:</strong> Der Zugang ist ausschliesslich Erwachsenen gestattet.</li>
+          <li><strong>Null Toleranz</strong> gegenueber Darstellungen Minderjaehriger — solche Inhalte werden gesperrt und den Behoerden gemeldet.</li>
+          <li><strong>Respekt &amp; Einvernehmen:</strong> Belaestigung, Gewaltandrohung, Aufnahmen ohne Zustimmung und illegale Inhalte fuehren zur sofortigen Sperrung.</li>
+          <li><strong>Melden hilft:</strong> Nutze jederzeit den Melden-Button. Jede Meldung wird moderiert.</li>
+          <li><strong>Deine Wahl:</strong> Kamera und Mikrofon sind freiwillig und koennen jederzeit ausgeschaltet werden.</li>
+          <li class="muted">Hinweis: Velura ist eine Beispiel-/Demoanwendung. Vor einem echten Betrieb sind robuste Altersverifikation, Datenschutz (DSGVO), geeignetes Hosting und aktive Content-Moderation erforderlich.</li>
         </ul>
-        <button class="btn btn-primary" id="terms-close">Schliessen</button>
+        <button class="btn btn-primary" id="terms-close">Verstanden</button>
       </div>
     </div>
 

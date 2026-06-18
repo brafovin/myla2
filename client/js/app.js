@@ -1,4 +1,4 @@
-// myla2 Frontend: Altersgate, Auth, Matchmaking, WebRTC, Chat, Moderation.
+// Velura Frontend: Altersgate, Auth, Matchmaking, WebRTC, Chat, Moderation.
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -12,6 +12,14 @@ const state = {
   partnerName: null,
   partnerId: null,
   inCall: false,
+  // Geraete-Einstellungen (an/aus) - werden in localStorage gemerkt.
+  prefs: {
+    camera: localStorage.getItem('velura_camera') !== '0',
+    mic: localStorage.getItem('velura_mic') !== '0',
+  },
+  // Zustaende fuer "Perfect Negotiation" (robuste WebRTC-Aushandlung).
+  makingOffer: false,
+  ignoreOffer: false,
 };
 
 // --- kleine API-Hilfen -----------------------------------------------------
@@ -33,13 +41,13 @@ async function api(path, opts = {}) {
 
 function initAgeGate() {
   const gate = $('#age-gate');
-  if (localStorage.getItem('myla2_age_ok') === '1') {
+  if (localStorage.getItem('velura_age_ok') === '1') {
     gate.classList.add('hidden');
     startApp();
     return;
   }
   $('#age-yes').addEventListener('click', () => {
-    localStorage.setItem('myla2_age_ok', '1');
+    localStorage.setItem('velura_age_ok', '1');
     gate.classList.add('hidden');
     startApp();
   });
@@ -54,6 +62,7 @@ function initAgeGate() {
 
 async function startApp() {
   $('#topbar').classList.remove('hidden');
+  $('#trust-bar').classList.remove('hidden');
   $('#app').classList.remove('hidden');
 
   try {
@@ -70,6 +79,7 @@ async function startApp() {
     state.user = null;
   }
   renderAuthState();
+  updateDeviceButtons();
   pollStats();
   setInterval(pollStats, 15000);
 }
@@ -265,24 +275,66 @@ async function handleWsMessage(msg) {
 // WebRTC
 // ===========================================================================
 
-async function ensureLocalStream() {
-  if (state.localStream) return state.localStream;
-  state.localStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: true,
-  });
-  $('#local-video').srcObject = state.localStream;
+// Fordert die lokalen Medien gemaess den Einstellungen an. Kamera UND Mikro
+// sind optional - sind beide aus, gibt es keinen lokalen Stream (reiner
+// Zuschauer-/Text-Modus). Fehlende Berechtigung deaktiviert das Geraet.
+async function acquireLocalMedia() {
+  releaseLocalMedia();
+  const want = { video: state.prefs.camera, audio: state.prefs.mic };
+  if (!want.video && !want.audio) {
+    state.localStream = null;
+    updateLocalPreview();
+    return null;
+  }
+  try {
+    state.localStream = await navigator.mediaDevices.getUserMedia(want);
+  } catch {
+    // Zugriff verweigert oder kein Geraet: Einstellungen entsprechend zuruecksetzen.
+    state.prefs.camera = false;
+    state.prefs.mic = false;
+    persistPrefs();
+    state.localStream = null;
+    setStatus('Kein Kamera-/Mikrofonzugriff - du nimmst ohne Video/Ton teil.');
+  }
+  updateLocalPreview();
   return state.localStream;
+}
+
+function releaseLocalMedia() {
+  if (state.localStream) {
+    state.localStream.getTracks().forEach((t) => t.stop());
+    state.localStream = null;
+  }
+}
+
+function persistPrefs() {
+  localStorage.setItem('velura_camera', state.prefs.camera ? '1' : '0');
+  localStorage.setItem('velura_mic', state.prefs.mic ? '1' : '0');
+  updateDeviceButtons();
 }
 
 async function startPeerConnection() {
   teardownPeer();
   const pc = new RTCPeerConnection({ iceServers: state.iceServers });
   state.pc = pc;
+  state.makingOffer = false;
+  state.ignoreOffer = false;
 
-  const stream = await ensureLocalStream();
-  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+  await acquireLocalMedia();
 
+  // "Perfect Negotiation": erlaubt spaeteres An-/Abschalten von Geraeten,
+  // ohne dass die Aushandlung der beiden Seiten kollidiert.
+  pc.addEventListener('negotiationneeded', async () => {
+    try {
+      state.makingOffer = true;
+      await pc.setLocalDescription();
+      sendWs({ type: 'signal', data: { sdp: pc.localDescription } });
+    } catch {
+      /* ignore */
+    } finally {
+      state.makingOffer = false;
+    }
+  });
   pc.addEventListener('icecandidate', (e) => {
     if (e.candidate) sendWs({ type: 'signal', data: { candidate: e.candidate } });
   });
@@ -295,41 +347,127 @@ async function startPeerConnection() {
     }
   });
 
-  if (state.isInitiator) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendWs({ type: 'signal', data: { sdp: pc.localDescription } });
+  // Vorhandene lokale Spuren senden ...
+  if (state.localStream) {
+    state.localStream.getTracks().forEach((t) =>
+      pc.addTrack(t, state.localStream)
+    );
+  }
+  // ... und fuer fehlende Richtungen Empfangs-Transceiver anlegen, damit das
+  // Video/der Ton des Partners auch dann ankommt, wenn wir selbst nichts senden.
+  if (!state.localStream || !state.localStream.getVideoTracks().length) {
+    pc.addTransceiver('video', { direction: 'recvonly' });
+  }
+  if (!state.localStream || !state.localStream.getAudioTracks().length) {
+    pc.addTransceiver('audio', { direction: 'recvonly' });
   }
 }
 
 async function handleSignal(data) {
   const pc = state.pc;
   if (!pc) return;
-  if (data.sdp) {
-    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-    if (data.sdp.type === 'offer') {
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      sendWs({ type: 'signal', data: { sdp: pc.localDescription } });
+  const polite = !state.isInitiator; // Initiator ist "unhoeflich".
+  try {
+    if (data.sdp) {
+      const offerCollision =
+        data.sdp.type === 'offer' &&
+        (state.makingOffer || pc.signalingState !== 'stable');
+      state.ignoreOffer = !polite && offerCollision;
+      if (state.ignoreOffer) return;
+
+      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      if (data.sdp.type === 'offer') {
+        await pc.setLocalDescription();
+        sendWs({ type: 'signal', data: { sdp: pc.localDescription } });
+      }
+    } else if (data.candidate) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (err) {
+        if (!state.ignoreOffer) throw err;
+      }
     }
-  } else if (data.candidate) {
+  } catch {
+    /* Aushandlungsfehler ignorieren - naechster Versuch folgt */
+  }
+}
+
+// Schaltet ein Geraet (Kamera/Mikro) im laufenden Gespraech an oder aus.
+// Beim Ausschalten wird die Spur gestoppt (Kamera-LED geht aus); beim
+// Einschalten neu angefordert. Die Aushandlung laeuft automatisch.
+async function toggleDevice(kind) {
+  const prefKey = kind === 'video' ? 'camera' : 'mic';
+  const turnOn = !state.prefs[prefKey];
+  state.prefs[prefKey] = turnOn;
+  persistPrefs();
+
+  const pc = state.pc;
+  if (!pc || !state.inCall) {
+    // Ausserhalb eines Gespraechs nur die Vorschau aktualisieren.
+    if (turnOn) await acquireLocalMedia();
+    else updateLocalPreview();
+    return;
+  }
+
+  if (turnOn) {
     try {
-      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      const media = await navigator.mediaDevices.getUserMedia({ [kind]: true });
+      const track = media.getTracks()[0];
+      if (!state.localStream) state.localStream = new MediaStream();
+      state.localStream.addTrack(track);
+      // Vorhandenen recvonly-Transceiver wiederverwenden, sonst neue Spur.
+      const tx = pc
+        .getTransceivers()
+        .find((t) => t.receiver.track?.kind === kind && !t.sender.track);
+      if (tx) {
+        await tx.sender.replaceTrack(track);
+        tx.direction = 'sendrecv';
+      } else {
+        pc.addTrack(track, state.localStream);
+      }
     } catch {
-      /* ignore */
+      state.prefs[prefKey] = false;
+      persistPrefs();
+      setStatus('Geraet konnte nicht aktiviert werden.');
     }
+  } else {
+    const tracks =
+      kind === 'video'
+        ? state.localStream?.getVideoTracks() || []
+        : state.localStream?.getAudioTracks() || [];
+    for (const track of tracks) {
+      const sender = pc.getSenders().find((s) => s.track === track);
+      if (sender) await sender.replaceTrack(null);
+      track.stop();
+      state.localStream?.removeTrack(track);
+    }
+  }
+  updateLocalPreview();
+}
+
+function updateLocalPreview() {
+  const el = $('#local-video');
+  const hasVideo = !!state.localStream?.getVideoTracks().length;
+  el.srcObject = hasVideo ? state.localStream : null;
+  $('#local-off')?.classList.toggle('hidden', hasVideo);
+  updateDeviceButtons();
+}
+
+function updateDeviceButtons() {
+  const cam = $('#cam-btn');
+  const mic = $('#mic-btn');
+  if (cam) {
+    cam.classList.toggle('off', !state.prefs.camera);
+    cam.textContent = state.prefs.camera ? '📷 Kamera an' : '🚫 Kamera aus';
+  }
+  if (mic) {
+    mic.classList.toggle('off', !state.prefs.mic);
+    mic.textContent = state.prefs.mic ? '🎤 Mikro an' : '🔇 Mikro aus';
   }
 }
 
 function teardownPeer() {
   if (state.pc) {
-    state.pc.getSenders().forEach((s) => {
-      try {
-        s.track && s.track.stop;
-      } catch {
-        /* ignore */
-      }
-    });
     try {
       state.pc.close();
     } catch {
@@ -342,11 +480,8 @@ function teardownPeer() {
 
 function teardownCall() {
   teardownPeer();
-  if (state.localStream) {
-    state.localStream.getTracks().forEach((t) => t.stop());
-    state.localStream = null;
-    $('#local-video').srcObject = null;
-  }
+  releaseLocalMedia();
+  updateLocalPreview();
   state.inCall = false;
 }
 
@@ -356,17 +491,15 @@ function teardownCall() {
 
 function initControls() {
   $('#start-btn').addEventListener('click', async () => {
-    try {
-      await ensureLocalStream();
-    } catch {
-      setStatus('Kamera/Mikrofon-Zugriff noetig, um zu starten.');
-      return;
-    }
     state.inCall = true;
     setControlsActive(true);
     clearMessages();
     await openSignaling();
   });
+
+  // Geraete-Schalter (funktionieren vor und waehrend eines Gespraechs).
+  $('#cam-btn').addEventListener('click', () => toggleDevice('video'));
+  $('#mic-btn').addEventListener('click', () => toggleDevice('audio'));
 
   $('#next-btn').addEventListener('click', () => {
     teardownPeer();
@@ -535,10 +668,12 @@ async function loadReports() {
 
 function initTerms() {
   const modal = $('#terms-modal');
-  $('#open-terms')?.addEventListener('click', (e) => {
+  const open = (e) => {
     e.preventDefault();
     modal.classList.remove('hidden');
-  });
+  };
+  $('#open-terms')?.addEventListener('click', open);
+  $('#open-terms-2')?.addEventListener('click', open);
   $('#terms-close').addEventListener('click', () => modal.classList.add('hidden'));
 }
 

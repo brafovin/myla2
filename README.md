@@ -1,11 +1,16 @@
-# myla2 — Anonymer Zufalls-Video-Chat (18+)
+# Velura — Eleganter Zufalls-Video-Chat (18+)
 
-Eine OmeTV-/Omegle-ähnliche Web-App, die zwei zufällige Personen per
+**Velura** ist eine eigenständige Web-App, die zwei zufällige Personen per
 **WebRTC**-Videochat verbindet. Ein Klick auf **„Weiter"** trennt die
 aktuelle Verbindung und sucht einen neuen Partner. Die Plattform ist
-ausschließlich für **Erwachsene ab 18 Jahren** gedacht und bringt von Anfang
-an Bausteine für verantwortungsvollen Betrieb mit: Altersgate,
-Registrierung mit Altersprüfung, Melde-Funktion und ein Moderations-Backend.
+ausschließlich für **Erwachsene ab 18 Jahren** gedacht, **werbefrei** und
+bringt von Anfang an Bausteine für verantwortungsvollen Betrieb mit:
+Altersgate, optionaler Gast-Zugang, Melde-Funktion und Moderations-Backend.
+Kamera und Mikrofon sind jederzeit **optional** ein- oder ausschaltbar.
+
+Das Design ist bewusst **eigenständig** (eigene Marke, eigenes Logo, eigene
+Farbwelt — keine OmeTV-Kopie), **dezent/seriös** und **vertrauensbildend**
+(sichtbare Hinweise auf Jugendschutz, Regeln und die Melden-Funktion).
 
 > ⚠️ **Wichtiger Hinweis:** Dies ist eine funktionsfähige Beispiel-/
 > Demoanwendung, **kein produktionsreifes Produkt**. Vor einem echten Betrieb
@@ -89,9 +94,11 @@ muss auch der WebSocket-Pfad `/ws` weitergereicht werden.
 - [x] Login/Logout mit Session-Cookie
 - [x] Zufalls-Matchmaking + WebRTC-Videochat (P2P)
 - [x] „Start / Weiter / Stop"-Steuerung
+- [x] **Kamera & Mikrofon optional** ein-/ausschaltbar (auch im Gespräch)
 - [x] Begleitender Text-Chat
 - [x] Nutzer melden (Meldungen landen in der DB)
 - [x] Moderations-Backend (Meldungen ansehen, Nutzer sperren)
+- [x] Eigenständiges, werbefreies Design mit eigenem Logo
 
 ## Mögliche nächste Schritte
 

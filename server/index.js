@@ -47,5 +47,5 @@ const server = http.createServer(app);
 attachWebSocket(server);
 
 server.listen(config.port, () => {
-  console.log(`myla2 laeuft auf http://localhost:${config.port}`);
+  console.log(`Velura laeuft auf http://localhost:${config.port}`);
 });

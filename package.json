@@ -1,7 +1,7 @@
 {
   "name": "myla2",
   "version": "0.1.0",
-  "description": "Anonymer Zufalls-Video-Chat fuer Erwachsene (18+) - OmeTV-aehnlich",
+  "description": "Velura - eleganter, werbefreier Zufalls-Video-Chat fuer Erwachsene (18+)",
   "type": "module",
   "engines": {
     "node": ">=22.5.0"
