@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="myla2 - anonymer Zufalls-Video-Chat fuer Erwachsene (18+)" />
+    <title>myla2 · Video-Chat 18+</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <!-- Altersgate: blockiert die Seite bis 18+ bestaetigt wurde -->
+    <div id="age-gate" class="overlay">
+      <div class="card age-card">
+        <h1>myla2</h1>
+        <p class="badge">Nur fuer Erwachsene · 18+</p>
+        <p>
+          Diese Plattform enthaelt Inhalte, die ausschliesslich fuer
+          Personen ab 18 Jahren bestimmt sind. Mit dem Fortfahren
+          bestaetigst du, dass du mindestens 18 Jahre alt bist und den
+          <a href="#" id="open-terms">Nutzungsbedingungen</a> zustimmst.
+        </p>
+        <div class="row">
+          <button id="age-yes" class="btn btn-primary">
+            Ich bin 18 Jahre oder aelter
+          </button>
+          <button id="age-no" class="btn btn-ghost">Verlassen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kopfzeile -->
+    <header id="topbar" class="hidden">
+      <div class="brand">myla2 <span class="badge small">18+</span></div>
+      <div class="top-right">
+        <span id="online-count" class="muted"></span>
+        <span id="current-user" class="muted"></span>
+        <button id="mod-link" class="btn btn-ghost hidden">Moderation</button>
+        <button id="logout-btn" class="btn btn-ghost hidden">Abmelden</button>
+      </div>
+    </header>
+
+    <main id="app" class="hidden">
+      <!-- Auth-Ansicht -->
+      <section id="auth-view" class="view">
+        <div class="card">
+          <div class="tabs">
+            <button class="tab active" data-tab="login">Anmelden</button>
+            <button class="tab" data-tab="register">Registrieren</button>
+          </div>
+
+          <form id="login-form" class="auth-form">
+            <input type="email" name="email" placeholder="E-Mail" required />
+            <input type="password" name="password" placeholder="Passwort" required />
+            <button class="btn btn-primary" type="submit">Anmelden</button>
+          </form>
+
+          <form id="register-form" class="auth-form hidden">
+            <input type="text" name="username" placeholder="Benutzername" required />
+            <input type="email" name="email" placeholder="E-Mail" required />
+            <input type="password" name="password" placeholder="Passwort (min. 8 Zeichen)" required />
+            <label class="field-label">Geburtsdatum</label>
+            <input type="date" name="birthdate" required />
+            <label class="checkbox">
+              <input type="checkbox" name="ageConfirmed" required />
+              Ich bestaetige, dass ich mindestens 18 Jahre alt bin.
+            </label>
+            <button class="btn btn-primary" type="submit">Konto erstellen</button>
+          </form>
+
+          <p id="auth-error" class="error"></p>
+        </div>
+      </section>
+
+      <!-- Video-Chat-Ansicht -->
+      <section id="chat-view" class="view hidden">
+        <div class="videos">
+          <video id="remote-video" autoplay playsinline></video>
+          <video id="local-video" autoplay playsinline muted></video>
+          <div id="status-banner" class="status-banner">
+            Klicke auf „Start", um einen zufaelligen Partner zu finden.
+          </div>
+        </div>
+
+        <aside class="sidebar">
+          <div class="controls">
+            <button id="start-btn" class="btn btn-primary">Start</button>
+            <button id="next-btn" class="btn btn-secondary hidden">Weiter ⏭</button>
+            <button id="stop-btn" class="btn btn-ghost hidden">Stop</button>
+            <button id="report-btn" class="btn btn-danger hidden">Melden</button>
+          </div>
+
+          <div class="chat">
+            <div id="messages" class="messages"></div>
+            <form id="chat-form" class="chat-form">
+              <input id="chat-input" type="text" placeholder="Nachricht…" autocomplete="off" disabled />
+              <button class="btn btn-secondary" type="submit" disabled>Senden</button>
+            </form>
+          </div>
+        </aside>
+      </section>
+
+      <!-- Moderations-Ansicht -->
+      <section id="mod-view" class="view hidden">
+        <div class="card wide">
+          <h2>Offene Meldungen</h2>
+          <div id="reports-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Melde-Dialog -->
+    <div id="report-modal" class="overlay hidden">
+      <div class="card">
+        <h2>Nutzer melden</h2>
+        <form id="report-form">
+          <select name="reason" required>
+            <option value="">Grund waehlen…</option>
+            <option value="minor">Minderjaehrig / Jugendschutz</option>
+            <option value="harassment">Belaestigung / Beleidigung</option>
+            <option value="illegal">Illegale Inhalte</option>
+            <option value="spam">Spam / Werbung</option>
+            <option value="other">Sonstiges</option>
+          </select>
+          <textarea name="details" placeholder="Details (optional)" maxlength="1000"></textarea>
+          <div class="row">
+            <button class="btn btn-danger" type="submit">Melden</button>
+            <button class="btn btn-ghost" type="button" id="report-cancel">Abbrechen</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Nutzungsbedingungen -->
+    <div id="terms-modal" class="overlay hidden">
+      <div class="card wide scroll">
+        <h2>Nutzungsbedingungen (Kurzfassung)</h2>
+        <ul>
+          <li>Der Zugang ist ausschliesslich Personen ab 18 Jahren gestattet.</li>
+          <li>Sexuelle Darstellungen Minderjaehriger sind streng verboten und werden den Behoerden gemeldet.</li>
+          <li>Belaestigung, Gewaltandrohung und illegale Inhalte fuehren zur sofortigen Sperrung.</li>
+          <li>Nutze die Melden-Funktion bei Verstoessen. Meldungen werden moderiert.</li>
+          <li>Dies ist eine Demo-/Beispielanwendung. Vor einem echten Betrieb sind eine robuste Altersverifikation, Datenschutz (DSGVO), Hosting in geeigneter Jurisdiktion und Content-Moderation zwingend erforderlich.</li>
+        </ul>
+        <button class="btn btn-primary" id="terms-close">Schliessen</button>
+      </div>
+    </div>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

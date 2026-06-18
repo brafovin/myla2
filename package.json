@@ -1,0 +1,17 @@
+{
+  "name": "myla2",
+  "version": "0.1.0",
+  "description": "Anonymer Zufalls-Video-Chat fuer Erwachsene (18+) - OmeTV-aehnlich",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --experimental-sqlite server/index.js",
+    "dev": "node --watch --experimental-sqlite server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
