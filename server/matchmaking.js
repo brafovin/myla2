@@ -189,6 +189,13 @@ function handleMessage(client, msg) {
       }
       break;
 
+    case 'meta':
+      // Praesenz-Infos (Avatar, Kamera an/aus) an den Partner weiterleiten.
+      if (client.partner) {
+        send(client.partner.ws, { type: 'meta', data: msg.data });
+      }
+      break;
+
     default:
       break;
   }

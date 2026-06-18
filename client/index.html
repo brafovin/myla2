@@ -117,9 +117,17 @@
       <section id="chat-view" class="view hidden">
         <div class="videos">
           <video id="remote-video" autoplay playsinline></video>
+          <!-- Avatar des Partners, falls dessen Kamera aus ist -->
+          <div id="remote-avatar" class="remote-avatar hidden">
+            <div id="remote-avatar-circle" class="avatar lg"></div>
+            <div id="remote-avatar-name" class="remote-avatar-name"></div>
+            <div class="muted">Kamera aus</div>
+          </div>
           <div class="local-wrap">
             <video id="local-video" autoplay playsinline muted></video>
-            <div id="local-off" class="local-off">Kamera aus</div>
+            <div id="local-off" class="local-off">
+              <div id="local-avatar" class="avatar"></div>
+            </div>
           </div>
           <div id="status-banner" class="status-banner">
             Stelle Kamera &amp; Mikro ein und klicke auf „Start", um einen
@@ -136,6 +144,29 @@
             Kamera und Mikro sind optional — du kannst auch nur zuschauen oder
             chatten.
           </p>
+
+          <!-- Frei gestaltbarer Avatar (Symbol + Farbe) -->
+          <details class="avatar-box">
+            <summary>
+              <span id="avatar-preview" class="avatar sm"></span>
+              Avatar gestalten
+            </summary>
+            <div class="avatar-editor">
+              <div id="avatar-presets" class="avatar-presets"></div>
+              <div class="avatar-fields">
+                <label class="avatar-field">
+                  Symbol
+                  <input id="avatar-emoji-input" maxlength="2" placeholder="😎 oder A" />
+                </label>
+                <label class="avatar-field">
+                  Farbe
+                  <input id="avatar-color" type="color" />
+                </label>
+                <button type="button" id="avatar-clear" class="btn btn-ghost">Initialen</button>
+              </div>
+              <p class="device-hint muted">Wird gezeigt, wenn deine Kamera aus ist.</p>
+            </div>
+          </details>
 
           <div class="controls">
             <button id="start-btn" class="btn btn-primary">Start</button>

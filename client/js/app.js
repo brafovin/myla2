@@ -17,6 +17,11 @@ const state = {
     camera: localStorage.getItem('velura_camera') !== '0',
     mic: localStorage.getItem('velura_mic') !== '0',
   },
+  // Avatar (wird bei ausgeschalteter Kamera angezeigt) - frei gestaltbar.
+  avatarEmoji: localStorage.getItem('velura_avatar') || '',
+  avatarColor: localStorage.getItem('velura_avatar_color') || '',
+  partnerAvatar: null,
+  partnerCameraOn: true,
   // Zustaende fuer "Perfect Negotiation" (robuste WebRTC-Aushandlung).
   makingOffer: false,
   ignoreOffer: false,
@@ -33,6 +38,50 @@ async function api(path, opts = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Fehler');
   return data;
+}
+
+// ===========================================================================
+// Avatare (werden bei ausgeschalteter Kamera angezeigt)
+// ===========================================================================
+
+const AVATARS = ['😎', '🦊', '🐼', '🌹', '🔥', '🦋', '🐯', '👑', '🌙', '💎'];
+const AVATAR_COLORS = [
+  '#b03a5e', '#c1577a', '#9c3a6e', '#7d2b4d', '#a8456a',
+  '#cf6f4a', '#b8553c', '#8e5a8c', '#5e3a6e', '#c2487f',
+];
+
+// Deterministische Farbe aus einem Namen ableiten.
+function colorFor(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function initialsFor(name) {
+  const parts = String(name || '?').trim().split(/\s+/);
+  const a = parts[0]?.[0] || '?';
+  const b = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (a + b).toUpperCase();
+}
+
+// Aktuellen eigenen Avatar als uebertragbares Objekt liefern.
+// Emoji/Symbol und Farbe sind frei waehlbar; ohne Auswahl werden Initialen
+// und eine aus dem Namen abgeleitete Farbe verwendet.
+function myAvatar() {
+  const name = state.user?.displayName || 'Gast';
+  return {
+    emoji: state.avatarEmoji || '',
+    initials: initialsFor(name),
+    color: state.avatarColor || colorFor(name),
+  };
+}
+
+// Avatar in ein Element rendern (Kreis mit Emoji oder Initialen).
+function renderAvatar(el, avatar) {
+  if (!el) return;
+  const a = avatar || {};
+  el.style.background = a.color || 'var(--secondary)';
+  el.textContent = a.emoji || a.initials || '?';
 }
 
 // ===========================================================================
@@ -103,6 +152,7 @@ function renderAuthState() {
     ? `${state.user.displayName}${state.user.isGuest ? ' (Gast)' : ''}`
     : '';
   $('#mod-link').classList.toggle('hidden', !state.user?.isModerator);
+  if (loggedIn) refreshAvatarUI();
   if (!loggedIn) showView('auth');
 }
 
@@ -248,9 +298,14 @@ async function handleWsMessage(msg) {
       state.isInitiator = msg.initiator;
       state.partnerName = msg.partner;
       state.partnerId = msg.partnerId;
+      // Partner-Avatar zuruecksetzen; Status kommt gleich per "meta".
+      state.partnerAvatar = null;
+      state.partnerCameraOn = true;
+      updateRemoteAvatar();
       addSystemMessage(`Mit ${msg.partner} verbunden.`);
       setStatus(`Verbunden mit ${msg.partner}`);
       await startPeerConnection();
+      sendMeta();
       break;
     case 'signal':
       await handleSignal(msg.data);
@@ -258,8 +313,16 @@ async function handleWsMessage(msg) {
     case 'chat':
       addMessage(msg.text, 'them');
       break;
+    case 'meta':
+      // Avatar/Kamera-Status des Partners uebernehmen.
+      state.partnerAvatar = msg.data?.avatar || null;
+      state.partnerCameraOn = msg.data?.cameraOn !== false;
+      updateRemoteAvatar();
+      break;
     case 'partner_left':
       addSystemMessage('Partner hat den Chat verlassen.');
+      state.partnerCameraOn = true;
+      updateRemoteAvatar();
       teardownPeer();
       setStatus('Partner weg. Klicke „Weiter" fuer einen neuen Chat.');
       break;
@@ -443,6 +506,7 @@ async function toggleDevice(kind) {
     }
   }
   updateLocalPreview();
+  if (kind === 'video') sendMeta();
 }
 
 function updateLocalPreview() {
@@ -450,7 +514,34 @@ function updateLocalPreview() {
   const hasVideo = !!state.localStream?.getVideoTracks().length;
   el.srcObject = hasVideo ? state.localStream : null;
   $('#local-off')?.classList.toggle('hidden', hasVideo);
+  if (!hasVideo) renderAvatar($('#local-avatar'), myAvatar());
   updateDeviceButtons();
+}
+
+// Blendet den Avatar des Partners ein, wenn dessen Kamera aus ist.
+function updateRemoteAvatar() {
+  const overlay = $('#remote-avatar');
+  if (!overlay) return;
+  const show = state.inCall && !!state.partnerName && !state.partnerCameraOn;
+  overlay.classList.toggle('hidden', !show);
+  if (show) {
+    const fallback = {
+      initials: initialsFor(state.partnerName),
+      color: colorFor(state.partnerName),
+    };
+    renderAvatar($('#remote-avatar-circle'), state.partnerAvatar || fallback);
+    $('#remote-avatar-name').textContent = state.partnerName;
+  }
+}
+
+// Teilt dem Partner den eigenen Avatar und Kamera-Status mit.
+function sendMeta() {
+  if (state.inCall) {
+    sendWs({
+      type: 'meta',
+      data: { avatar: myAvatar(), cameraOn: state.prefs.camera },
+    });
+  }
 }
 
 function updateDeviceButtons() {
@@ -483,6 +574,69 @@ function teardownCall() {
   releaseLocalMedia();
   updateLocalPreview();
   state.inCall = false;
+}
+
+// ===========================================================================
+// Avatar-Editor (frei gestaltbar: Symbol + Farbe)
+// ===========================================================================
+
+function applyAvatarChange() {
+  localStorage.setItem('velura_avatar', state.avatarEmoji);
+  localStorage.setItem('velura_avatar_color', state.avatarColor);
+  renderAvatar($('#avatar-preview'), myAvatar());
+  updateLocalPreview();
+  sendMeta();
+}
+
+// Aktualisiert Avatar-Vorschauen, wenn sich der Anzeigename aendert (Login).
+function refreshAvatarUI() {
+  const colorInput = $('#avatar-color');
+  if (colorInput && !state.avatarColor) {
+    colorInput.value = colorFor(state.user?.displayName || 'Gast');
+  }
+  renderAvatar($('#avatar-preview'), myAvatar());
+  updateLocalPreview();
+}
+
+function initAvatarPicker() {
+  const presets = $('#avatar-presets');
+  AVATARS.forEach((emo) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'avatar-preset';
+    b.textContent = emo;
+    b.addEventListener('click', () => {
+      state.avatarEmoji = emo;
+      $('#avatar-emoji-input').value = emo;
+      applyAvatarChange();
+    });
+    presets.appendChild(b);
+  });
+
+  const emojiInput = $('#avatar-emoji-input');
+  emojiInput.value = state.avatarEmoji;
+  emojiInput.addEventListener('input', () => {
+    // Beliebiges Emoji oder bis zu zwei Zeichen zulassen.
+    state.avatarEmoji = [...emojiInput.value].slice(0, 2).join('');
+    applyAvatarChange();
+  });
+
+  const colorInput = $('#avatar-color');
+  colorInput.value = state.avatarColor || colorFor(state.user?.displayName || 'Gast');
+  colorInput.addEventListener('input', () => {
+    state.avatarColor = colorInput.value;
+    applyAvatarChange();
+  });
+
+  $('#avatar-clear').addEventListener('click', () => {
+    state.avatarEmoji = '';
+    state.avatarColor = '';
+    emojiInput.value = '';
+    colorInput.value = colorFor(state.user?.displayName || 'Gast');
+    applyAvatarChange();
+  });
+
+  renderAvatar($('#avatar-preview'), myAvatar());
 }
 
 // ===========================================================================
@@ -687,6 +841,7 @@ function escapeHtml(str) {
 
 initAgeGate();
 initAuth();
+initAvatarPicker();
 initControls();
 initModeration();
 initTerms();
