@@ -1,22 +1,31 @@
 <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Velura Logo">
   <defs>
     <linearGradient id="vl-bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3a2a4d"/>
-      <stop offset="1" stop-color="#1b1426"/>
+      <stop stop-color="#352847"/>
+      <stop offset="1" stop-color="#191124"/>
     </linearGradient>
-    <linearGradient id="vl-mark" x1="14" y1="16" x2="50" y2="50" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f0b48a"/>
-      <stop offset="0.55" stop-color="#e07ba0"/>
-      <stop offset="1" stop-color="#b85c9c"/>
+    <linearGradient id="vl-left" x1="16" y1="14" x2="33" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f3c39a"/>
+      <stop offset="1" stop-color="#e08aa6"/>
+    </linearGradient>
+    <linearGradient id="vl-right" x1="48" y1="14" x2="33" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e07ba0"/>
+      <stop offset="1" stop-color="#a8528f"/>
     </linearGradient>
   </defs>
-  <!-- abgerundetes App-Icon -->
-  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#vl-bg)" stroke="#4a3a5e" stroke-width="1.5"/>
-  <!-- abstraktes "V" als Verbindung zweier Personen, die sich treffen -->
-  <path d="M18 20 L32 44 L46 20" stroke="url(#vl-mark)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <!-- zwei verbundene Knoten (Begegnung) -->
-  <circle cx="18" cy="20" r="5" fill="#f0b48a"/>
-  <circle cx="46" cy="20" r="5" fill="#e07ba0"/>
-  <!-- Funke der Verbindung -->
-  <circle cx="32" cy="44" r="3.2" fill="#ffffff" opacity="0.95"/>
+
+  <!-- Abgerundetes App-Icon (neutraler Hintergrund) -->
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#vl-bg)" stroke="#4a3a5e" stroke-width="1.5"/>
+
+  <!-- Origami-"V": zwei gefaltete Baender, die unten zusammenlaufen.
+       Bewusst kein Kreis und keine Sprechblase. -->
+  <!-- linkes Band -->
+  <path d="M15 16 L25 16 L34 41 L31.5 49 Z" fill="url(#vl-left)"/>
+  <!-- rechtes Band -->
+  <path d="M49 16 L39 16 L30 41 L32.5 49 Z" fill="url(#vl-right)"/>
+  <!-- feine Mittelfalte fuer den Ribbon-Effekt -->
+  <path d="M32 47 L29.4 39.5 L32 32.5 L34.6 39.5 Z" fill="#ffffff" opacity="0.16"/>
+
+  <!-- Funke / Akzent oben rechts -->
+  <path d="M50 13.5 L51.3 16.3 L54 17.6 L51.3 18.9 L50 21.6 L48.7 18.9 L46 17.6 L48.7 16.3 Z" fill="#f3c39a"/>
 </svg>
