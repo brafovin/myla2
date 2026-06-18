@@ -1,47 +1,47 @@
-// Velura Frontend: Altersgate, Auth, Matchmaking, WebRTC, Chat, Moderation.
+// Velura Frontend (Supabase + WebRTC).
+// Auth, Matchmaking und Signaling laufen ueber Supabase; Video ist P2P (WebRTC).
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const $ = (sel) => document.querySelector(sel);
+const CFG = window.VELURA_CONFIG || {};
+
+// Supabase-Client (Konfiguration aus config.js).
+let supabase = null;
+const configReady =
+  CFG.supabaseUrl &&
+  CFG.supabaseAnonKey &&
+  !CFG.supabaseUrl.includes('DEIN-PROJEKT');
+if (configReady) {
+  supabase = createClient(CFG.supabaseUrl, CFG.supabaseAnonKey);
+}
 
 const state = {
-  user: null,
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  ws: null,
+  user: null, // { id, displayName, isGuest, isModerator }
+  iceServers: CFG.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }],
+  lobby: null,
+  room: null,
+  roomId: null,
+  onlineCh: null,
   pc: null,
   localStream: null,
   isInitiator: false,
   partnerName: null,
   partnerId: null,
   inCall: false,
-  // Geraete-Einstellungen (an/aus) - werden in localStorage gemerkt.
   prefs: {
     camera: localStorage.getItem('velura_camera') !== '0',
     mic: localStorage.getItem('velura_mic') !== '0',
   },
-  // Avatar (wird bei ausgeschalteter Kamera angezeigt) - frei gestaltbar.
   avatarEmoji: localStorage.getItem('velura_avatar') || '',
   avatarColor: localStorage.getItem('velura_avatar_color') || '',
   partnerAvatar: null,
   partnerCameraOn: true,
-  // Zustaende fuer "Perfect Negotiation" (robuste WebRTC-Aushandlung).
   makingOffer: false,
   ignoreOffer: false,
 };
 
-// --- kleine API-Hilfen -----------------------------------------------------
-
-async function api(path, opts = {}) {
-  const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    ...opts,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Fehler');
-  return data;
-}
-
 // ===========================================================================
-// Avatare (werden bei ausgeschalteter Kamera angezeigt)
+// Avatare
 // ===========================================================================
 
 const AVATARS = ['😎', '🦊', '🐼', '🌹', '🔥', '🦋', '🐯', '👑', '🌙', '💎'];
@@ -50,7 +50,6 @@ const AVATAR_COLORS = [
   '#cf6f4a', '#b8553c', '#8e5a8c', '#5e3a6e', '#c2487f',
 ];
 
-// Deterministische Farbe aus einem Namen ableiten.
 function colorFor(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
@@ -64,9 +63,6 @@ function initialsFor(name) {
   return (a + b).toUpperCase();
 }
 
-// Aktuellen eigenen Avatar als uebertragbares Objekt liefern.
-// Emoji/Symbol und Farbe sind frei waehlbar; ohne Auswahl werden Initialen
-// und eine aus dem Namen abgeleitete Farbe verwendet.
 function myAvatar() {
   const name = state.user?.displayName || 'Gast';
   return {
@@ -76,7 +72,6 @@ function myAvatar() {
   };
 }
 
-// Avatar in ein Element rendern (Kreis mit Emoji oder Initialen).
 function renderAvatar(el, avatar) {
   if (!el) return;
   const a = avatar || {};
@@ -106,7 +101,7 @@ function initAgeGate() {
 }
 
 // ===========================================================================
-// App-Start: Konfiguration + aktueller Nutzer
+// App-Start
 // ===========================================================================
 
 async function startApp() {
@@ -114,33 +109,49 @@ async function startApp() {
   $('#trust-bar').classList.remove('hidden');
   $('#app').classList.remove('hidden');
 
-  try {
-    const cfg = await api('/config');
-    if (cfg.iceServers?.length) state.iceServers = cfg.iceServers;
-  } catch {
-    /* Standard-STUN behalten */
+  if (!configReady) {
+    showView('auth');
+    $('#guest-error').textContent =
+      'Supabase ist nicht konfiguriert. Bitte client/config.js ausfuellen.';
+    return;
   }
 
-  try {
-    const { user } = await api('/me');
-    state.user = user;
-  } catch {
-    state.user = null;
-  }
-  renderAuthState();
+  // Bestehende Sitzung laden.
+  await postAuth();
   updateDeviceButtons();
-  pollStats();
-  setInterval(pollStats, 15000);
 }
 
-async function pollStats() {
-  try {
-    const res = await fetch('/healthz');
-    const data = await res.json();
-    $('#online-count').textContent = `${data.online} online`;
-  } catch {
-    /* ignore */
+// Laedt Profil nach Login/Sitzung und aktualisiert die Oberflaeche.
+async function postAuth() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    state.user = null;
+    renderAuthState();
+    return;
   }
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+  if (prof?.is_banned) {
+    await supabase.auth.signOut();
+    state.user = null;
+    renderAuthState();
+    $('#auth-error').textContent = 'Dieses Konto wurde gesperrt.';
+    return;
+  }
+  state.user = {
+    id: user.id,
+    displayName: prof?.display_name || 'Gast',
+    isGuest: !!prof?.is_guest,
+    isModerator: !!prof?.is_moderator,
+  };
+  renderAuthState();
+  subscribeOnline();
 }
 
 function renderAuthState() {
@@ -154,6 +165,7 @@ function renderAuthState() {
   $('#mod-link').classList.toggle('hidden', !state.user?.isModerator);
   if (loggedIn) refreshAvatarUI();
   if (!loggedIn) showView('auth');
+  else showView('chat');
 }
 
 function showView(name) {
@@ -162,31 +174,65 @@ function showView(name) {
   }
 }
 
+// Praesenz-Kanal fuer die Online-Anzeige.
+function subscribeOnline() {
+  if (state.onlineCh) return;
+  const ch = supabase.channel('velura-online', {
+    config: { presence: { key: state.user.id } },
+  });
+  ch.on('presence', { event: 'sync' }, () => {
+    const n = Object.keys(ch.presenceState()).length;
+    $('#online-count').textContent = `${n} online`;
+  }).subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') await ch.track({ at: Date.now() });
+  });
+  state.onlineCh = ch;
+}
+
 // ===========================================================================
-// Auth-Formulare
+// Authentifizierung (Supabase)
 // ===========================================================================
+
+function ageFromBirthdate(birthdate) {
+  const b = new Date(birthdate);
+  if (Number.isNaN(b.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
+  return age;
+}
 
 function initAuth() {
-  // Gast-Zugang: nur Nickname + 18+-Bestaetigung.
+  // Gast-Zugang: anonyme Anmeldung mit Nickname.
   $('#guest-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = e.target;
     $('#guest-error').textContent = '';
-    try {
-      const { user } = await api('/auth/guest', {
-        method: 'POST',
-        body: JSON.stringify({
-          nickname: f.nickname.value,
-          ageConfirmed: f.ageConfirmed.checked,
-        }),
-      });
-      state.user = user;
-      renderAuthState();
-    } catch (err) {
-      $('#guest-error').textContent = err.message;
+    if (!supabase) return;
+    const f = e.target;
+    const nickname = f.nickname.value.trim();
+    if (nickname.length < 2) {
+      $('#guest-error').textContent = 'Nickname: mindestens 2 Zeichen.';
+      return;
     }
+    if (!f.ageConfirmed.checked) {
+      $('#guest-error').textContent = 'Bitte 18+ bestaetigen.';
+      return;
+    }
+    const { error } = await supabase.auth.signInAnonymously({
+      options: {
+        data: { display_name: nickname, is_guest: true, age_confirmed: true },
+      },
+    });
+    if (error) {
+      $('#guest-error').textContent =
+        'Gast-Login fehlgeschlagen: ' + error.message;
+      return;
+    }
+    await postAuth();
   });
 
+  // Tabs (Login / Registrieren)
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
@@ -200,147 +246,194 @@ function initAuth() {
 
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    $('#auth-error').textContent = '';
     const f = e.target;
-    try {
-      const { user } = await api('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: f.email.value,
-          password: f.password.value,
-        }),
-      });
-      state.user = user;
-      renderAuthState();
-    } catch (err) {
-      $('#auth-error').textContent = err.message;
+    const { error } = await supabase.auth.signInWithPassword({
+      email: f.email.value,
+      password: f.password.value,
+    });
+    if (error) {
+      $('#auth-error').textContent = 'Falsche Zugangsdaten.';
+      return;
     }
+    await postAuth();
   });
 
   $('#register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    $('#auth-error').textContent = '';
     const f = e.target;
-    try {
-      const { user } = await api('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: f.username.value,
-          email: f.email.value,
-          password: f.password.value,
-          birthdate: f.birthdate.value,
-          ageConfirmed: f.ageConfirmed.checked,
-        }),
-      });
-      state.user = user;
-      renderAuthState();
-    } catch (err) {
-      $('#auth-error').textContent = err.message;
+    const age = ageFromBirthdate(f.birthdate.value);
+    if (age === null) {
+      $('#auth-error').textContent = 'Ungueltiges Geburtsdatum.';
+      return;
     }
+    if (age < 18) {
+      $('#auth-error').textContent =
+        'Diese Plattform ist nur fuer Personen ab 18 Jahren.';
+      return;
+    }
+    const { data, error } = await supabase.auth.signUp({
+      email: f.email.value,
+      password: f.password.value,
+      options: {
+        data: {
+          display_name: f.username.value.trim(),
+          is_guest: false,
+          age_confirmed: true,
+        },
+      },
+    });
+    if (error) {
+      $('#auth-error').textContent = 'Registrierung fehlgeschlagen: ' + error.message;
+      return;
+    }
+    if (!data.session) {
+      // E-Mail-Bestaetigung ist aktiv.
+      $('#auth-error').textContent =
+        'Bitte bestaetige deine E-Mail und melde dich anschliessend an.';
+      return;
+    }
+    await postAuth();
   });
 
   $('#logout-btn').addEventListener('click', async () => {
-    await api('/auth/logout', { method: 'POST' }).catch(() => {});
     teardownCall();
-    closeWs();
+    await leaveAll();
+    await supabase.auth.signOut();
     state.user = null;
     renderAuthState();
   });
 }
 
 // ===========================================================================
-// WebSocket / Matchmaking
+// Matchmaking + Signaling (Supabase Realtime)
 // ===========================================================================
 
-// Oeffnet die Signaling-Verbindung. Die Authentifizierung laeuft ueber das
-// Session-Cookie, das der Browser beim WS-Handshake automatisch mitsendet.
-function openSignaling() {
-  closeWs();
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  state.ws = ws;
-  ws.addEventListener('message', (e) => handleWsMessage(JSON.parse(e.data)));
-  ws.addEventListener('close', () => {
-    setStatus('Getrennt. Klicke auf „Start", um neu zu verbinden.');
-    resetControls();
+// Lauscht auf Matches, bei denen WIR der wartende Teil (user_b) sind.
+function subscribeLobby() {
+  return new Promise((resolve) => {
+    if (state.lobby) return resolve();
+    const ch = supabase
+      .channel('inbox-' + state.user.id)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'matches',
+          filter: `user_b=eq.${state.user.id}`,
+        },
+        ({ new: row }) => onMatched(row.id, row.user_a, false)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') resolve();
+      });
+    state.lobby = ch;
   });
-  ws.addEventListener('error', () => setStatus('Verbindungsfehler.'));
 }
 
-function closeWs() {
-  if (state.ws) {
-    try {
-      state.ws.close();
-    } catch {
-      /* ignore */
-    }
-    state.ws = null;
+async function startMatching() {
+  await subscribeLobby();
+  setStatus('Suche einen zufaelligen Partner…');
+  const { data, error } = await supabase.rpc('request_match');
+  if (error) {
+    setStatus('Matchmaking-Fehler: ' + error.message);
+    return;
+  }
+  if (data) {
+    // Sofort gepaart -> wir sind Initiator (user_a).
+    await onMatched(data.id, data.user_b, true);
+  } else {
+    setStatus('Warte auf einen Partner…');
   }
 }
 
-function sendWs(obj) {
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(JSON.stringify(obj));
+async function onMatched(matchId, partnerId, initiator) {
+  if (state.roomId === matchId) return; // Doppelte Benachrichtigung ignorieren.
+  state.isInitiator = initiator;
+  state.partnerId = partnerId;
+  state.partnerAvatar = null;
+  state.partnerCameraOn = true;
+  updateRemoteAvatar();
+
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('display_name')
+    .eq('id', partnerId)
+    .single();
+  state.partnerName = prof?.display_name || 'Partner';
+
+  joinRoom(matchId);
+  addSystemMessage(`Mit ${state.partnerName} verbunden.`);
+  setStatus(`Verbunden mit ${state.partnerName}`);
+  await startPeerConnection();
+  sendMeta();
+}
+
+function joinRoom(matchId) {
+  leaveRoom();
+  const room = supabase.channel('room:' + matchId, {
+    config: { broadcast: { self: false } },
+  });
+  room
+    .on('broadcast', { event: 'signal' }, ({ payload }) => handleSignal(payload))
+    .on('broadcast', { event: 'chat' }, ({ payload }) =>
+      addMessage(String(payload.text || '').slice(0, 2000), 'them')
+    )
+    .on('broadcast', { event: 'meta' }, ({ payload }) => applyMeta(payload))
+    .on('broadcast', { event: 'bye' }, () => onPartnerLeft())
+    .subscribe();
+  state.room = room;
+  state.roomId = matchId;
+}
+
+function leaveRoom() {
+  if (state.room) {
+    supabase.removeChannel(state.room);
+    state.room = null;
+  }
+  state.roomId = null;
+}
+
+// Verlaesst Warteschlange, Raum und Lobby (z.B. bei Logout).
+async function leaveAll() {
+  roomSend('bye', {});
+  leaveRoom();
+  if (state.lobby) {
+    supabase.removeChannel(state.lobby);
+    state.lobby = null;
+  }
+  if (supabase && state.user) {
+    await supabase.rpc('leave_queue').catch(() => {});
   }
 }
 
-async function handleWsMessage(msg) {
-  switch (msg.type) {
-    case 'auth_ok':
-      setStatus('Suche einen zufaelligen Partner…');
-      sendWs({ type: 'queue' });
-      break;
-    case 'auth_error':
-      setStatus('Anmeldung fuer Chat fehlgeschlagen.');
-      break;
-    case 'waiting':
-      setStatus('Warte auf einen Partner…');
-      break;
-    case 'matched':
-      state.isInitiator = msg.initiator;
-      state.partnerName = msg.partner;
-      state.partnerId = msg.partnerId;
-      // Partner-Avatar zuruecksetzen; Status kommt gleich per "meta".
-      state.partnerAvatar = null;
-      state.partnerCameraOn = true;
-      updateRemoteAvatar();
-      addSystemMessage(`Mit ${msg.partner} verbunden.`);
-      setStatus(`Verbunden mit ${msg.partner}`);
-      await startPeerConnection();
-      sendMeta();
-      break;
-    case 'signal':
-      await handleSignal(msg.data);
-      break;
-    case 'chat':
-      addMessage(msg.text, 'them');
-      break;
-    case 'meta':
-      // Avatar/Kamera-Status des Partners uebernehmen.
-      state.partnerAvatar = msg.data?.avatar || null;
-      state.partnerCameraOn = msg.data?.cameraOn !== false;
-      updateRemoteAvatar();
-      break;
-    case 'partner_left':
-      addSystemMessage('Partner hat den Chat verlassen.');
-      state.partnerCameraOn = true;
-      updateRemoteAvatar();
-      teardownPeer();
-      setStatus('Partner weg. Klicke „Weiter" fuer einen neuen Chat.');
-      break;
-    case 'stopped':
-      setStatus('Chat beendet.');
-      break;
-    default:
-      break;
+function roomSend(event, payload) {
+  if (state.room) {
+    state.room.send({ type: 'broadcast', event, payload });
   }
+}
+
+function applyMeta(data) {
+  state.partnerAvatar = data?.avatar || null;
+  state.partnerCameraOn = data?.cameraOn !== false;
+  updateRemoteAvatar();
+}
+
+function onPartnerLeft() {
+  addSystemMessage('Partner hat den Chat verlassen.');
+  state.partnerCameraOn = true;
+  updateRemoteAvatar();
+  teardownPeer();
+  leaveRoom();
+  setStatus('Partner weg. Klicke „Weiter" fuer einen neuen Chat.');
 }
 
 // ===========================================================================
 // WebRTC
 // ===========================================================================
 
-// Fordert die lokalen Medien gemaess den Einstellungen an. Kamera UND Mikro
-// sind optional - sind beide aus, gibt es keinen lokalen Stream (reiner
-// Zuschauer-/Text-Modus). Fehlende Berechtigung deaktiviert das Geraet.
 async function acquireLocalMedia() {
   releaseLocalMedia();
   const want = { video: state.prefs.camera, audio: state.prefs.mic };
@@ -352,7 +445,6 @@ async function acquireLocalMedia() {
   try {
     state.localStream = await navigator.mediaDevices.getUserMedia(want);
   } catch {
-    // Zugriff verweigert oder kein Geraet: Einstellungen entsprechend zuruecksetzen.
     state.prefs.camera = false;
     state.prefs.mic = false;
     persistPrefs();
@@ -385,13 +477,11 @@ async function startPeerConnection() {
 
   await acquireLocalMedia();
 
-  // "Perfect Negotiation": erlaubt spaeteres An-/Abschalten von Geraeten,
-  // ohne dass die Aushandlung der beiden Seiten kollidiert.
   pc.addEventListener('negotiationneeded', async () => {
     try {
       state.makingOffer = true;
       await pc.setLocalDescription();
-      sendWs({ type: 'signal', data: { sdp: pc.localDescription } });
+      roomSend('signal', { sdp: pc.localDescription });
     } catch {
       /* ignore */
     } finally {
@@ -399,7 +489,7 @@ async function startPeerConnection() {
     }
   });
   pc.addEventListener('icecandidate', (e) => {
-    if (e.candidate) sendWs({ type: 'signal', data: { candidate: e.candidate } });
+    if (e.candidate) roomSend('signal', { candidate: e.candidate });
   });
   pc.addEventListener('track', (e) => {
     $('#remote-video').srcObject = e.streams[0];
@@ -410,14 +500,9 @@ async function startPeerConnection() {
     }
   });
 
-  // Vorhandene lokale Spuren senden ...
   if (state.localStream) {
-    state.localStream.getTracks().forEach((t) =>
-      pc.addTrack(t, state.localStream)
-    );
+    state.localStream.getTracks().forEach((t) => pc.addTrack(t, state.localStream));
   }
-  // ... und fuer fehlende Richtungen Empfangs-Transceiver anlegen, damit das
-  // Video/der Ton des Partners auch dann ankommt, wenn wir selbst nichts senden.
   if (!state.localStream || !state.localStream.getVideoTracks().length) {
     pc.addTransceiver('video', { direction: 'recvonly' });
   }
@@ -429,7 +514,7 @@ async function startPeerConnection() {
 async function handleSignal(data) {
   const pc = state.pc;
   if (!pc) return;
-  const polite = !state.isInitiator; // Initiator ist "unhoeflich".
+  const polite = !state.isInitiator;
   try {
     if (data.sdp) {
       const offerCollision =
@@ -437,11 +522,10 @@ async function handleSignal(data) {
         (state.makingOffer || pc.signalingState !== 'stable');
       state.ignoreOffer = !polite && offerCollision;
       if (state.ignoreOffer) return;
-
       await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
       if (data.sdp.type === 'offer') {
         await pc.setLocalDescription();
-        sendWs({ type: 'signal', data: { sdp: pc.localDescription } });
+        roomSend('signal', { sdp: pc.localDescription });
       }
     } else if (data.candidate) {
       try {
@@ -451,13 +535,10 @@ async function handleSignal(data) {
       }
     }
   } catch {
-    /* Aushandlungsfehler ignorieren - naechster Versuch folgt */
+    /* Aushandlungsfehler ignorieren */
   }
 }
 
-// Schaltet ein Geraet (Kamera/Mikro) im laufenden Gespraech an oder aus.
-// Beim Ausschalten wird die Spur gestoppt (Kamera-LED geht aus); beim
-// Einschalten neu angefordert. Die Aushandlung laeuft automatisch.
 async function toggleDevice(kind) {
   const prefKey = kind === 'video' ? 'camera' : 'mic';
   const turnOn = !state.prefs[prefKey];
@@ -466,7 +547,6 @@ async function toggleDevice(kind) {
 
   const pc = state.pc;
   if (!pc || !state.inCall) {
-    // Ausserhalb eines Gespraechs nur die Vorschau aktualisieren.
     if (turnOn) await acquireLocalMedia();
     else updateLocalPreview();
     return;
@@ -478,7 +558,6 @@ async function toggleDevice(kind) {
       const track = media.getTracks()[0];
       if (!state.localStream) state.localStream = new MediaStream();
       state.localStream.addTrack(track);
-      // Vorhandenen recvonly-Transceiver wiederverwenden, sonst neue Spur.
       const tx = pc
         .getTransceivers()
         .find((t) => t.receiver.track?.kind === kind && !t.sender.track);
@@ -518,7 +597,6 @@ function updateLocalPreview() {
   updateDeviceButtons();
 }
 
-// Blendet den Avatar des Partners ein, wenn dessen Kamera aus ist.
 function updateRemoteAvatar() {
   const overlay = $('#remote-avatar');
   if (!overlay) return;
@@ -534,13 +612,9 @@ function updateRemoteAvatar() {
   }
 }
 
-// Teilt dem Partner den eigenen Avatar und Kamera-Status mit.
 function sendMeta() {
-  if (state.inCall) {
-    sendWs({
-      type: 'meta',
-      data: { avatar: myAvatar(), cameraOn: state.prefs.camera },
-    });
+  if (state.room) {
+    roomSend('meta', { avatar: myAvatar(), cameraOn: state.prefs.camera });
   }
 }
 
@@ -577,7 +651,7 @@ function teardownCall() {
 }
 
 // ===========================================================================
-// Avatar-Editor (frei gestaltbar: Symbol + Farbe)
+// Avatar-Editor
 // ===========================================================================
 
 function applyAvatarChange() {
@@ -588,7 +662,6 @@ function applyAvatarChange() {
   sendMeta();
 }
 
-// Aktualisiert Avatar-Vorschauen, wenn sich der Anzeigename aendert (Login).
 function refreshAvatarUI() {
   const colorInput = $('#avatar-color');
   if (colorInput && !state.avatarColor) {
@@ -616,7 +689,6 @@ function initAvatarPicker() {
   const emojiInput = $('#avatar-emoji-input');
   emojiInput.value = state.avatarEmoji;
   emojiInput.addEventListener('input', () => {
-    // Beliebiges Emoji oder bis zu zwei Zeichen zulassen.
     state.avatarEmoji = [...emojiInput.value].slice(0, 2).join('');
     applyAvatarChange();
   });
@@ -648,24 +720,24 @@ function initControls() {
     state.inCall = true;
     setControlsActive(true);
     clearMessages();
-    await openSignaling();
+    await startMatching();
   });
 
-  // Geraete-Schalter (funktionieren vor und waehrend eines Gespraechs).
   $('#cam-btn').addEventListener('click', () => toggleDevice('video'));
   $('#mic-btn').addEventListener('click', () => toggleDevice('audio'));
 
-  $('#next-btn').addEventListener('click', () => {
+  $('#next-btn').addEventListener('click', async () => {
+    roomSend('bye', {});
+    leaveRoom();
     teardownPeer();
     clearMessages();
     addSystemMessage('Suche neuen Partner…');
-    sendWs({ type: 'next' });
+    await startMatching();
   });
 
-  $('#stop-btn').addEventListener('click', () => {
-    sendWs({ type: 'stop' });
+  $('#stop-btn').addEventListener('click', async () => {
+    await leaveAll();
     teardownPeer();
-    closeWs();
     resetControls();
     setStatus('Gestoppt. Klicke „Start", um wieder zu beginnen.');
   });
@@ -674,8 +746,8 @@ function initControls() {
     e.preventDefault();
     const input = $('#chat-input');
     const text = input.value.trim();
-    if (!text) return;
-    sendWs({ type: 'chat', text });
+    if (!text || !state.room) return;
+    roomSend('chat', { text });
     addMessage(text, 'me');
     input.value = '';
   });
@@ -733,14 +805,13 @@ function initReporting() {
     e.preventDefault();
     const f = e.target;
     try {
-      await api('/report', {
-        method: 'POST',
-        body: JSON.stringify({
-          reportedId: state.partnerId,
-          reason: f.reason.value,
-          details: f.details.value,
-        }),
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: state.user.id,
+        reported_id: state.partnerId,
+        reason: f.reason.value,
+        details: f.details.value || null,
       });
+      if (error) throw error;
       addSystemMessage('Meldung gesendet. Danke!');
     } catch (err) {
       addSystemMessage('Meldung fehlgeschlagen: ' + err.message);
@@ -765,7 +836,8 @@ async function loadReports() {
   const list = $('#reports-list');
   list.innerHTML = 'Lade…';
   try {
-    const { reports } = await api('/mod/reports');
+    const { data: reports, error } = await supabase.rpc('mod_open_reports');
+    if (error) throw error;
     if (!reports.length) {
       list.innerHTML = '<p class="muted">Keine offenen Meldungen.</p>';
       return;
@@ -775,9 +847,9 @@ async function loadReports() {
       const item = document.createElement('div');
       item.className = 'report-item';
       item.innerHTML = `
-        <div class="meta">#${r.id} · ${new Date(r.created_at).toLocaleString('de-DE')}
+        <div class="meta">${new Date(r.created_at).toLocaleString('de-DE')}
         · von ${escapeHtml(r.reporter_name || '—')} gegen ${escapeHtml(r.reported_name || '—')}</div>
-        <div><strong>${r.reason}</strong></div>
+        <div><strong>${escapeHtml(r.reason)}</strong></div>
         <div>${r.details ? escapeHtml(r.details) : ''}</div>
         <div class="row"></div>`;
       const row = item.querySelector('.row');
@@ -789,10 +861,7 @@ async function loadReports() {
           r.reported_guest ? ' (Gast)' : ''
         } sperren`;
         banBtn.addEventListener('click', async () => {
-          await api('/mod/ban', {
-            method: 'POST',
-            body: JSON.stringify({ userId: r.reported_id }),
-          });
+          await supabase.rpc('mod_ban_user', { target: r.reported_id });
           loadReports();
         });
         row.appendChild(banBtn);
@@ -802,17 +871,14 @@ async function loadReports() {
       dismissBtn.className = 'btn btn-ghost';
       dismissBtn.textContent = 'Verwerfen';
       dismissBtn.addEventListener('click', async () => {
-        await api('/mod/dismiss', {
-          method: 'POST',
-          body: JSON.stringify({ reportId: r.id }),
-        });
+        await supabase.rpc('mod_dismiss_report', { report_id: r.id });
         loadReports();
       });
       row.appendChild(dismissBtn);
       list.appendChild(item);
     }
   } catch (err) {
-    list.innerHTML = `<p class="error">${err.message}</p>`;
+    list.innerHTML = `<p class="error">${escapeHtml(err.message)}</p>`;
   }
 }
 
