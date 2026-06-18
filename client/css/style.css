@@ -182,6 +182,27 @@ main {
 }
 
 /* --- Auth --- */
+.auth-stack {
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.account-box summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+}
+
+.account-box summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-box[open] summary {
+  margin-bottom: 1rem;
+}
+
 .tabs {
   display: flex;
   gap: 0.5rem;

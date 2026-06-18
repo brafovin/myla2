@@ -1,5 +1,6 @@
 // REST-API: Registrierung, Login, Profil, Meldungen, Moderation.
 import express from 'express';
+import crypto from 'node:crypto';
 import { db, nowIso } from './db.js';
 import {
   hashPassword,
@@ -28,9 +29,17 @@ function publicUser(u) {
   return {
     id: u.id,
     username: u.username,
+    displayName: u.display_name,
     email: u.email,
+    isGuest: !!u.is_guest,
     isModerator: !!u.is_moderator,
   };
+}
+
+// Bereinigt einen frei gewaehlten Nickname/Anzeigenamen.
+function cleanDisplayName(name) {
+  const trimmed = String(name || '').replace(/\s+/g, ' ').trim();
+  return trimmed;
 }
 
 function setSessionCookie(res, token) {
@@ -88,13 +97,15 @@ apiRouter.post('/auth/register', (req, res) => {
   }
 
   try {
+    const name = String(username).trim();
     const result = db
       .prepare(
-        `INSERT INTO users (username, email, password_hash, birthdate, age_confirmed, created_at)
-         VALUES (?, ?, ?, ?, 1, ?)`
+        `INSERT INTO users (username, display_name, email, password_hash, birthdate, age_confirmed, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?)`
       )
       .run(
-        String(username).trim(),
+        name,
+        name,
         String(email).trim().toLowerCase(),
         hashPassword(String(password)),
         birthdate,
@@ -115,6 +126,53 @@ apiRouter.post('/auth/register', (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Serverfehler bei der Registrierung.' });
   }
+});
+
+// --- Gast-Zugang (ohne Konto) ----------------------------------------------
+
+apiRouter.post('/auth/guest', (req, res) => {
+  const { nickname, ageConfirmed } = req.body || {};
+  const name = cleanDisplayName(nickname);
+
+  if (name.length < 2 || name.length > 24) {
+    return res
+      .status(400)
+      .json({ error: 'Nickname: 2 bis 24 Zeichen.' });
+  }
+  // Auch Gaeste muessen 18+ bestaetigen (Selbstauskunft).
+  if (!ageConfirmed) {
+    return res.status(400).json({
+      error: 'Bitte bestaetige, dass du mindestens 18 Jahre alt bist.',
+    });
+  }
+
+  // Interne, eindeutige Kennung; der Nickname ist nur der Anzeigename und
+  // darf sich daher mit anderen ueberschneiden.
+  let user = null;
+  for (let attempt = 0; attempt < 5 && !user; attempt++) {
+    const internal = 'guest_' + crypto.randomBytes(6).toString('hex');
+    try {
+      const result = db
+        .prepare(
+          `INSERT INTO users (username, display_name, age_confirmed, is_guest, created_at)
+           VALUES (?, ?, 1, 1, ?)`
+        )
+        .run(internal, name, nowIso());
+      user = db
+        .prepare('SELECT * FROM users WHERE id = ?')
+        .get(result.lastInsertRowid);
+    } catch (err) {
+      if (!String(err.message).includes('UNIQUE')) throw err;
+      // Sehr unwahrscheinliche Kollision der internen Kennung -> neu versuchen.
+    }
+  }
+  if (!user) {
+    return res.status(500).json({ error: 'Gast-Zugang fehlgeschlagen.' });
+  }
+
+  const token = createSession(user.id);
+  setSessionCookie(res, token);
+  res.json({ user: publicUser(user), token });
 });
 
 // --- Login -----------------------------------------------------------------
@@ -158,15 +216,15 @@ apiRouter.get('/me', (req, res) => {
 // --- Meldung erstellen -----------------------------------------------------
 
 apiRouter.post('/report', requireAuth, (req, res) => {
-  const { reportedUsername, reason, details } = req.body || {};
+  const { reportedId: rawId, reason, details } = req.body || {};
   if (!reason) {
     return res.status(400).json({ error: 'Grund erforderlich.' });
   }
   let reportedId = null;
-  if (reportedUsername) {
+  if (rawId != null) {
     const reported = db
-      .prepare('SELECT id FROM users WHERE username = ?')
-      .get(String(reportedUsername).trim());
+      .prepare('SELECT id FROM users WHERE id = ?')
+      .get(Number(rawId));
     reportedId = reported?.id ?? null;
   }
   db.prepare(
@@ -187,7 +245,8 @@ apiRouter.post('/report', requireAuth, (req, res) => {
 apiRouter.get('/mod/reports', requireAuth, requireModerator, (req, res) => {
   const rows = db
     .prepare(
-      `SELECT r.*, ru.username AS reporter_name, tu.username AS reported_name
+      `SELECT r.*, ru.display_name AS reporter_name,
+              tu.display_name AS reported_name, tu.is_guest AS reported_guest
        FROM reports r
        LEFT JOIN users ru ON ru.id = r.reporter_id
        LEFT JOIN users tu ON tu.id = r.reported_id
@@ -200,10 +259,10 @@ apiRouter.get('/mod/reports', requireAuth, requireModerator, (req, res) => {
 });
 
 apiRouter.post('/mod/ban', requireAuth, requireModerator, (req, res) => {
-  const { username } = req.body || {};
+  const { userId } = req.body || {};
   const target = db
-    .prepare('SELECT * FROM users WHERE username = ?')
-    .get(String(username || '').trim());
+    .prepare('SELECT * FROM users WHERE id = ?')
+    .get(Number(userId));
   if (!target) return res.status(404).json({ error: 'Nutzer nicht gefunden.' });
   db.prepare('UPDATE users SET is_banned = 1 WHERE id = ?').run(target.id);
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id);

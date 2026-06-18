@@ -10,6 +10,7 @@ const state = {
   localStream: null,
   isInitiator: false,
   partnerName: null,
+  partnerId: null,
   inCall: false,
 };
 
@@ -88,7 +89,9 @@ function renderAuthState() {
   $('#auth-view').classList.toggle('hidden', loggedIn);
   $('#chat-view').classList.toggle('hidden', !loggedIn);
   $('#logout-btn').classList.toggle('hidden', !loggedIn);
-  $('#current-user').textContent = loggedIn ? `@${state.user.username}` : '';
+  $('#current-user').textContent = loggedIn
+    ? `${state.user.displayName}${state.user.isGuest ? ' (Gast)' : ''}`
+    : '';
   $('#mod-link').classList.toggle('hidden', !state.user?.isModerator);
   if (!loggedIn) showView('auth');
 }
@@ -104,6 +107,26 @@ function showView(name) {
 // ===========================================================================
 
 function initAuth() {
+  // Gast-Zugang: nur Nickname + 18+-Bestaetigung.
+  $('#guest-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    $('#guest-error').textContent = '';
+    try {
+      const { user } = await api('/auth/guest', {
+        method: 'POST',
+        body: JSON.stringify({
+          nickname: f.nickname.value,
+          ageConfirmed: f.ageConfirmed.checked,
+        }),
+      });
+      state.user = user;
+      renderAuthState();
+    } catch (err) {
+      $('#guest-error').textContent = err.message;
+    }
+  });
+
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
@@ -214,8 +237,9 @@ async function handleWsMessage(msg) {
     case 'matched':
       state.isInitiator = msg.initiator;
       state.partnerName = msg.partner;
-      addSystemMessage(`Mit @${msg.partner} verbunden.`);
-      setStatus(`Verbunden mit @${msg.partner}`);
+      state.partnerId = msg.partnerId;
+      addSystemMessage(`Mit ${msg.partner} verbunden.`);
+      setStatus(`Verbunden mit ${msg.partner}`);
       await startPeerConnection();
       break;
     case 'signal':
@@ -425,7 +449,7 @@ function initReporting() {
       await api('/report', {
         method: 'POST',
         body: JSON.stringify({
-          reportedUsername: state.partnerName,
+          reportedId: state.partnerId,
           reason: f.reason.value,
           details: f.details.value,
         }),
@@ -465,20 +489,22 @@ async function loadReports() {
       item.className = 'report-item';
       item.innerHTML = `
         <div class="meta">#${r.id} · ${new Date(r.created_at).toLocaleString('de-DE')}
-        · von @${r.reporter_name || '—'} gegen @${r.reported_name || '—'}</div>
+        · von ${escapeHtml(r.reporter_name || '—')} gegen ${escapeHtml(r.reported_name || '—')}</div>
         <div><strong>${r.reason}</strong></div>
         <div>${r.details ? escapeHtml(r.details) : ''}</div>
         <div class="row"></div>`;
       const row = item.querySelector('.row');
 
-      if (r.reported_name) {
+      if (r.reported_id) {
         const banBtn = document.createElement('button');
         banBtn.className = 'btn btn-danger';
-        banBtn.textContent = `@${r.reported_name} sperren`;
+        banBtn.textContent = `${r.reported_name || 'Nutzer'}${
+          r.reported_guest ? ' (Gast)' : ''
+        } sperren`;
         banBtn.addEventListener('click', async () => {
           await api('/mod/ban', {
             method: 'POST',
-            body: JSON.stringify({ username: r.reported_name }),
+            body: JSON.stringify({ userId: r.reported_id }),
           });
           loadReports();
         });

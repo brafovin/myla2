@@ -15,11 +15,13 @@ db.exec('PRAGMA foreign_keys = ON;');
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT    NOT NULL UNIQUE,
-    email         TEXT    NOT NULL UNIQUE,
-    password_hash TEXT    NOT NULL,
-    birthdate     TEXT    NOT NULL,           -- YYYY-MM-DD
+    username      TEXT    NOT NULL UNIQUE,    -- interne Kennung (Login bzw. guest_*)
+    display_name  TEXT    NOT NULL,           -- angezeigter Name / Nickname
+    email         TEXT    UNIQUE,             -- bei Gaesten NULL
+    password_hash TEXT,                       -- bei Gaesten NULL
+    birthdate     TEXT,                       -- YYYY-MM-DD, bei Gaesten NULL
     age_confirmed INTEGER NOT NULL DEFAULT 0, -- 18+ bestaetigt
+    is_guest      INTEGER NOT NULL DEFAULT 0,
     is_banned     INTEGER NOT NULL DEFAULT 0,
     is_moderator  INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL
@@ -48,6 +50,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 `);
+
+// Defensive Migration: fehlende Spalten in aelteren Datenbanken ergaenzen.
+const userCols = new Set(
+  db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
+);
+if (!userCols.has('display_name')) {
+  db.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
+  db.exec('UPDATE users SET display_name = username WHERE display_name IS NULL');
+}
+if (!userCols.has('is_guest')) {
+  db.exec('ALTER TABLE users ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0');
+}
 
 export function nowIso() {
   return new Date().toISOString();

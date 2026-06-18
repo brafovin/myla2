@@ -52,8 +52,18 @@ function pair(a, b) {
   a.state = b.state = 'paired';
 
   // a ist der Initiator und erstellt das WebRTC-Angebot.
-  send(a.ws, { type: 'matched', initiator: true, partner: b.user.username });
-  send(b.ws, { type: 'matched', initiator: false, partner: a.user.username });
+  send(a.ws, {
+    type: 'matched',
+    initiator: true,
+    partner: b.user.display_name,
+    partnerId: b.user.id,
+  });
+  send(b.ws, {
+    type: 'matched',
+    initiator: false,
+    partner: a.user.display_name,
+    partnerId: a.user.id,
+  });
 }
 
 // Loest die aktuelle Paarung; benachrichtigt optional den Partner.

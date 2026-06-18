@@ -41,8 +41,25 @@
 
     <main id="app" class="hidden">
       <!-- Auth-Ansicht -->
-      <section id="auth-view" class="view">
+      <section id="auth-view" class="view auth-stack">
+        <!-- Schneller Gast-Zugang (kein Konto noetig) -->
         <div class="card">
+          <h2>Sofort loslegen</h2>
+          <p class="muted">Kein Konto noetig — Nickname waehlen und chatten.</p>
+          <form id="guest-form" class="auth-form">
+            <input type="text" name="nickname" placeholder="Dein Nickname" maxlength="24" required />
+            <label class="checkbox">
+              <input type="checkbox" name="ageConfirmed" required />
+              Ich bestaetige, dass ich mindestens 18 Jahre alt bin.
+            </label>
+            <button class="btn btn-primary" type="submit">Als Gast beitreten</button>
+          </form>
+          <p id="guest-error" class="error"></p>
+        </div>
+
+        <!-- Optional: Konto erstellen / anmelden -->
+        <details class="card account-box">
+          <summary>Konto erstellen oder anmelden (optional)</summary>
           <div class="tabs">
             <button class="tab active" data-tab="login">Anmelden</button>
             <button class="tab" data-tab="register">Registrieren</button>
@@ -68,7 +85,7 @@
           </form>
 
           <p id="auth-error" class="error"></p>
-        </div>
+        </details>
       </section>
 
       <!-- Video-Chat-Ansicht -->

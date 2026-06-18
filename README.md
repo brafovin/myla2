@@ -84,7 +84,8 @@ muss auch der WebSocket-Pfad `/ws` weitergereicht werden.
 ## Funktionsübersicht
 
 - [x] Altersgate (18+-Bestätigung beim Betreten)
-- [x] Registrierung mit Geburtsdatum + serverseitiger Altersprüfung
+- [x] **Gast-Zugang ohne Konto** — nur Nickname wählen und loslegen
+- [x] Optionale Registrierung mit Geburtsdatum + serverseitiger Altersprüfung
 - [x] Login/Logout mit Session-Cookie
 - [x] Zufalls-Matchmaking + WebRTC-Videochat (P2P)
 - [x] „Start / Weiter / Stop"-Steuerung
