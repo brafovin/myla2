@@ -1,21 +1,21 @@
 :root {
-  /* Eigenstaendiges, elegantes Velura-Theme: tiefes Pflaume-Plum mit
-     warmem Rosé-Gold-Akzent und ruhigem Teal fuer Vertrauenselemente. */
-  --bg: #14101b;
-  --bg-2: #1d1726;
-  --card: #241c30;
-  --card-2: #2c2238;
-  --text: #f0ebf4;
-  --muted: #a99db8;
-  --accent: #e07ba0;
-  --accent-2: #f0b48a;
-  --accent-soft: rgba(224, 123, 160, 0.16);
-  --secondary: #6c5ce7;
-  --trust: #4fd1b5;
-  --danger: #ff6b6b;
-  --border: #342a44;
+  /* Velura-Theme: tiefes Weinrot/Bordeaux mit warmen Rosé-Akzenten
+     und einem champagner-goldenen Ton fuer Vertrauenselemente. */
+  --bg: #1c0a10;
+  --bg-2: #2a0f17;
+  --card: #361421;
+  --card-2: #43182a;
+  --text: #f8e9ee;
+  --muted: #cb9fac;
+  --accent: #e86a93;        /* Rosé */
+  --accent-2: #f4a6c0;      /* helles Rosé */
+  --accent-soft: rgba(232, 106, 147, 0.16);
+  --secondary: #b03a5e;     /* Beerig-Weinrot */
+  --trust: #e0b070;         /* Champagner-Gold */
+  --danger: #ff5c6c;
+  --border: #5a2334;
   --radius: 16px;
-  --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -26,8 +26,8 @@ body {
   margin: 0;
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   background:
-    radial-gradient(1200px 600px at 15% -10%, #2a1f3a, transparent),
-    radial-gradient(900px 500px at 100% 0%, #25203a, transparent),
+    radial-gradient(1200px 600px at 15% -10%, #4a1322, transparent),
+    radial-gradient(900px 500px at 100% 0%, #3a1020, transparent),
     var(--bg);
   color: var(--text);
   min-height: 100vh;
